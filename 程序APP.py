@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon May 12 20:43:31 2025
+Created on Tue May 13 08:29:07 2025
 
 @author: LENOVO
 """
@@ -64,7 +64,7 @@ with st.sidebar:
         """
         This logistic regression model is trained on historical clinical data
         to predict the risk of post-operative fever after percutaneous nephrolithotomy (PCNL).
-        Enter patient parameters on the main page and click “Predict Fever Risk.”
+        Enter patient parameters on the main page and click "Predict Fever Risk."
         """
     )
     st.header("Feature Descriptions")
@@ -134,7 +134,7 @@ if st.button("Predict Fever Risk", use_container_width=True):
         df["degree_of_hydronephrosis"] = df["degree_of_hydronephrosis"].map({
             "None": 0, "Mild": 1, "Moderate": 2, "Severe": 3
         })
-        df["MayoScore_bin"] = df["MayoScore_bin"].map({">=3": 1, "<3": 0})
+        df["MayoScore_bin"] = df["MayoScore_bin"].map({"≥3": 1, "<3": 0})  # Fixed mapping
 
         # Predict probability
         proba = model.predict_proba(df)[0][1] * 100
@@ -175,30 +175,42 @@ if st.button("Predict Fever Risk", use_container_width=True):
             st.markdown("## Feature Impact Analysis")
             st.info("Red bars increase fever risk; blue bars decrease risk.")
 
-            explainer = shap.KernelExplainer(lambda x: model.predict_proba(x)[:, 1], shap.sample(df, 5))
-            shap_values = explainer.shap_values(df)
-
-            # Summary plot
-            fig, ax = plt.subplots(figsize=(10, 6))
-            shap.summary_plot(shap_values, df, feature_names=df.columns.tolist(), show=False)
-            st.pyplot(fig)
+            # Create a small sample from our data for the explainer
+            # This helps prevent memory issues
+            X_sample = shap.sample(df, 3)
+            
+            # Use a more memory-efficient explainer
+            explainer = shap.Explainer(model.predict_proba, X_sample)
+            shap_values = explainer(df)
+            
+            # Summary plot with controlled figure size
+            plt.figure(figsize=(10, 6), dpi=100)  # Control DPI to limit size
+            fig_summary = shap.plots.beeswarm(shap_values[:, :, 1], show=False, max_display=15)
+            plt.tight_layout()
+            st.pyplot(plt.gcf())
             plt.clf()
-
-            # Waterfall plot
-            fig, ax = plt.subplots(figsize=(10, 6))
-            shap.plots._waterfall.waterfall_legacy(
-                explainer.expected_value, shap_values[0], feature_names=df.columns.tolist(), show=False
-            )
-            st.pyplot(fig)
-            plt.clf()
+            
+            # Force plot - alternative to waterfall for better performance
+            st.subheader("Individual Feature Contributions")
+            # Convert to HTML representation with a controlled size
+            html = shap.plots.force(explainer.expected_value[1], 
+                                  shap_values.values[0, :, 1], 
+                                  df.iloc[0],
+                                  feature_names=df.columns.tolist(),
+                                  matplotlib=False,
+                                  show=False,
+                                  figsize=(10, 3))
+            st.components.v1.html(html, height=300)
 
         except Exception as e:
-            st.warning(f"Could not generate SHAP explanation: {e}")
+            st.warning(f"Could not generate SHAP explanation: {str(e)}")
             st.markdown("""
             Possible reasons:  
             1. SHAP version mismatch  
-            2. Unsupported model type  
-            3. Input data format mismatch  
+            2. Memory limitations  
+            3. Input data format mismatch
+            
+            Try using a smaller dataset or upgrading SHAP to the latest version.
             """)
 
 # ——— Footer ———
