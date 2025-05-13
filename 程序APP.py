@@ -1,6 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Created on Tue May 13 08:29:07 2025
+Created on Tue May 13 08:46:40 2025
+
+@author: LENOVO
+"""
+
+# -*- coding: utf-8 -*-
+"""
+Created on Mon May 12 20:43:31 2025
 
 @author: LENOVO
 """
@@ -134,7 +141,7 @@ if st.button("Predict Fever Risk", use_container_width=True):
         df["degree_of_hydronephrosis"] = df["degree_of_hydronephrosis"].map({
             "None": 0, "Mild": 1, "Moderate": 2, "Severe": 3
         })
-        df["MayoScore_bin"] = df["MayoScore_bin"].map({"≥3": 1, "<3": 0})  # Fixed mapping
+        df["MayoScore_bin"] = df["MayoScore_bin"].map({"≥3": 1, "<3": 0})  # 修正了原错误的">=3"
 
         # Predict probability
         proba = model.predict_proba(df)[0][1] * 100
@@ -170,48 +177,73 @@ if st.button("Predict Fever Risk", use_container_width=True):
             ax.axis("equal")
             st.pyplot(fig)
 
-        # ——— SHAP explanations ———
+        # ——— SHAP explanations ——— (基于成功示例代码修改)
         try:
             st.markdown("## Feature Impact Analysis")
             st.info("Red bars increase fever risk; blue bars decrease risk.")
-
-            # Create a small sample from our data for the explainer
-            # This helps prevent memory issues
-            X_sample = shap.sample(df, 3)
             
-            # Use a more memory-efficient explainer
-            explainer = shap.Explainer(model.predict_proba, X_sample)
-            shap_values = explainer(df)
+            # 使用LogisticRegression模型需要使用KernelExplainer
+            # 创建一个小的背景数据集
+            background = shap.sample(df, 3)
+            explainer = shap.KernelExplainer(lambda x: model.predict_proba(x)[:, 1], background)
+            shap_values = explainer.shap_values(df)
             
-            # Summary plot with controlled figure size
-            plt.figure(figsize=(10, 6), dpi=100)  # Control DPI to limit size
-            fig_summary = shap.plots.beeswarm(shap_values[:, :, 1], show=False, max_display=15)
+            # 方法1：使用summary_plot，但控制图像大小和分辨率
+            plt.figure(figsize=(10, 6), dpi=80)  # 设置较低的DPI和适中的尺寸
+            shap.summary_plot(
+                shap_values, 
+                df,
+                feature_names=df.columns.tolist(),
+                max_display=15,  # 限制显示的特征数量
+                show=False
+            )
             plt.tight_layout()
-            st.pyplot(plt.gcf())
-            plt.clf()
-            
-            # Force plot - alternative to waterfall for better performance
-            st.subheader("Individual Feature Contributions")
-            # Convert to HTML representation with a controlled size
-            html = shap.plots.force(explainer.expected_value[1], 
-                                  shap_values.values[0, :, 1], 
-                                  df.iloc[0],
-                                  feature_names=df.columns.tolist(),
-                                  matplotlib=False,
-                                  show=False,
-                                  figsize=(10, 3))
-            st.components.v1.html(html, height=300)
+            st.pyplot(plt)
+            plt.close()  # 确保关闭图形
+
+            # 方法2：创建力导向图(Force Plot)，类似于成功的示例代码
+            st.subheader("Feature Contributions")
+            # 生成力导向图
+            fig, ax = plt.subplots(figsize=(10, 3), dpi=80)
+            shap.force_plot(
+                explainer.expected_value,
+                shap_values[0],
+                df.iloc[0, :],
+                feature_names=df.columns.tolist(),
+                matplotlib=True,
+                show=False,
+                text_rotation=45
+            )
+            plt.tight_layout()
+            plt.savefig("shap_force_plot.png", bbox_inches='tight', dpi=100)
+            st.image("shap_force_plot.png")
 
         except Exception as e:
-            st.warning(f"Could not generate SHAP explanation: {str(e)}")
+            st.warning(f"Could not generate SHAP explanation: {e}")
             st.markdown("""
             Possible reasons:  
             1. SHAP version mismatch  
-            2. Memory limitations  
-            3. Input data format mismatch
-            
-            Try using a smaller dataset or upgrading SHAP to the latest version.
+            2. Unsupported model type  
+            3. Input data format mismatch  
             """)
+            
+            # 备用方案：生成简单的特征重要性图
+            try:
+                st.subheader("Feature Importance (Alternative Visualization)")
+                feature_importance = pd.DataFrame(
+                    np.abs(shap_values[0]),  # 使用SHAP值的绝对值
+                    index=df.columns,
+                    columns=['importance']
+                ).sort_values('importance', ascending=False)
+                
+                fig, ax = plt.subplots(figsize=(10, 6), dpi=80)
+                feature_importance.plot(kind='barh', ax=ax)
+                plt.xlabel('Feature Importance (absolute SHAP value)')
+                plt.tight_layout()
+                st.pyplot(fig)
+                plt.close()
+            except:
+                st.error("Could not generate alternative visualization.")
 
 # ——— Footer ———
 st.markdown("""
